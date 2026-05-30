@@ -8,7 +8,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { SearchIcon, UserIcon, ChevronLeft } from "lucide-react";
+import { SearchIcon, UserIcon, ChevronLeft, HardDriveIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useFolder, useAllFolders, useUpdateFolder } from "@/hooks/useFolders";
 import type { Folder } from "@/types/api";
@@ -262,7 +262,7 @@ function MainLayout() {
                 )}
               </div>
             </Link>
-            <div className="text-[10px] text-white/30 font-mono mt-0.5 select-none">0.260530.01.1 (beta)</div>
+            <div className="text-[10px] text-white/30 font-mono mt-0.5 select-none">0.260530.02.1 (beta)</div>
           </h1>
         )}
         <div className="flex items-center gap-2.5">
@@ -279,6 +279,11 @@ function MainLayout() {
           >
             <SearchIcon strokeWidth={3} className="size-4.5"></SearchIcon>
           </Button>
+          <Link to="/storage">
+            <Button variant="default" size="icon-lg" haptic="light">
+              <HardDriveIcon strokeWidth={2} className="size-4.5"></HardDriveIcon>
+            </Button>
+          </Link>
           <Link to="/profile">
             <Button variant="default" size="icon-lg" haptic="light">
               <UserIcon fill="white" className="size-4.5"></UserIcon>

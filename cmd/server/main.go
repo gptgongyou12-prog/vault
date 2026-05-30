@@ -438,6 +438,12 @@ func main() {
 	mux.Handle("PUT /api/projects/{projectId}/notes", authMW(httputil.Wrap(notesHandler.UpsertProjectNote)))
 	mux.Handle("DELETE /api/notes/{noteId}", authMW(httputil.Wrap(notesHandler.DeleteNote)))
 
+	filesHandler := handlers.NewFilesHandler(database, config.DataDir)
+	mux.Handle("GET /api/files", authMW(httputil.Wrap(filesHandler.ListFiles)))
+	mux.Handle("POST /api/files/upload", authMW(httputil.Wrap(filesHandler.UploadFile)))
+	mux.Handle("GET /api/files/{id}/download", authMW(httputil.Wrap(filesHandler.DownloadFile)))
+	mux.Handle("DELETE /api/files/{id}", authMW(httputil.Wrap(filesHandler.DeleteFile)))
+
 	mux.Handle("GET /api/ws", authMW(http.HandlerFunc(wsHandler.HandleConnection)))
 	mux.Handle("GET /api/ws/collaborate", authMW(http.HandlerFunc(collaborationHandler.HandleCollaboration)))
 
