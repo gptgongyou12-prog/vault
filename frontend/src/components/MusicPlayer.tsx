@@ -24,6 +24,7 @@ import {
 import { useProjectCoverImage } from "../hooks/useProjectCoverImage";
 import { LyricsPanel } from "./LyricsPanel";
 import { useWebHaptics } from "web-haptics/react";
+import { getStreamUrl } from "../api/media";
 
 interface MusicPlayerProps {
   hideControls?: boolean;
@@ -382,6 +383,41 @@ export default function MusicPlayer({
       audio.removeEventListener("timeupdate", handleTimeUpdate);
     };
   }, [onPlayingChange, onEnded, onDurationChange, isDragging]);
+
+  // Recover from signed URL expiry (MEDIA_ERR_NETWORK) during long playback
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
+
+    const handleError = async () => {
+      const a = audioRef.current;
+      if (!a) return;
+      // Only recover from network errors (e.g. signed URL expired → 403)
+      if (a.error?.code !== MediaError.MEDIA_ERR_NETWORK) return;
+      try {
+        const savedTime = a.currentTime;
+        const wasPlaying = !a.paused;
+        const signed = await getStreamUrl(currentTrack.id);
+        const newUrl = signed.url; // relative path, same origin
+        if (!audioRef.current) return;
+        audioRef.current.src = newUrl;
+        audioRef.current.load();
+        await new Promise<void>((res) => {
+          audioRef.current!.addEventListener("canplay", () => res(), { once: true });
+        });
+        if (!audioRef.current) return;
+        audioRef.current.currentTime = savedTime;
+        if (wasPlaying) audioRef.current.play().catch(() => {});
+      } catch {
+        // refresh failed — stream just stops, no crash
+      }
+    };
+
+    audio.addEventListener("error", handleError);
+    return () => {
+      audio.removeEventListener("error", handleError);
+    };
+  }, [currentTrack]);
 
   useEffect(() => {
     const updateTime = () => {
