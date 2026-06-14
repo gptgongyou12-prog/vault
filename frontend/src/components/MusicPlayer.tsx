@@ -310,7 +310,7 @@ export default function MusicPlayer({
           : nextTrack.projectName || "Unknown Artist";
       document.title = `${nextTrack.title} - ${artist}`;
     } else {
-      document.title = "{vault}";
+      document.title = "{arbiter}";
     }
   }, [currentTrack, queue]);
 
@@ -384,7 +384,32 @@ export default function MusicPlayer({
     };
   }, [onPlayingChange, onEnded, onDurationChange, isDragging]);
 
-  // Recover from signed URL expiry (MEDIA_ERR_NETWORK) during long playback
+  // iOS PWA background playback recovery
+  // When app resumes from background, iOS may have paused the audio
+  // We detect this and resume playback automatically
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Coming back to foreground - check if audio should be playing
+        if (isPlaying && audio.paused && audio.src) {
+          // Small delay to let iOS wake up properly
+          setTimeout(() => {
+            if (isPlaying && audio.paused && audio.src) {
+              audio.play().catch(() => {});
+            }
+          }, 300);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isPlaying]);
+
+    // Recover from signed URL expiry (MEDIA_ERR_NETWORK) during long playback
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack) return;
@@ -474,12 +499,12 @@ export default function MusicPlayer({
 
     if (isPlaying) {
       const handleLoadedData = () => {
-        audio.play().catch((error) => {
-          console.error("Failed to play:", error);
-        });
+        if (audio.paused) {
+          audio.play().catch((error) => {
+            console.error("Failed to play:", error);
+          });
+        }
       };
-
-      audio.addEventListener("loadeddata", handleLoadedData, { once: true });
 
       const handleCanPlay = () => {
         if (audio.paused && audio.readyState >= 2) {
@@ -489,7 +514,11 @@ export default function MusicPlayer({
         }
       };
 
+      audio.addEventListener("loadeddata", handleLoadedData, { once: true });
       audio.addEventListener("canplay", handleCanPlay, { once: true });
+
+      // Also try immediate play - succeeds if element was unlocked by user gesture
+      audio.play().catch(() => {});
 
       return () => {
         audio.removeEventListener("loadeddata", handleLoadedData);
@@ -843,7 +872,7 @@ export default function MusicPlayer({
 
       {!hideControls && (
         <div
-          className={`fixed bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-110 w-[calc(100%-1rem)] sm:w-[calc(100%-3rem)] max-w-[800px] transition-opacity duration-300 ${
+          className={`fixed bottom-[60px] sm:bottom-6 left-1/2 -translate-x-1/2 z-110 w-[calc(100%-1rem)] sm:w-[calc(100%-3rem)] max-w-[800px] transition-opacity duration-300 ${
             showPlayer ? "opacity-100" : "opacity-0"
           }`}
         >

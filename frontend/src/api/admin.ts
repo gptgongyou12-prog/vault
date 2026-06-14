@@ -9,6 +9,12 @@ export interface UserResponse {
   is_owner: boolean
   lite_mode: boolean
   created_at: string
+  subscription_type: string
+  subscription_expires_at: string | null
+  subscription_warning_enabled: boolean
+  subscription_warning_message: string
+  last_seen_at: string | null
+  is_online: boolean
 }
 
 export interface CreateInviteResponse {
@@ -101,4 +107,20 @@ export async function validateResetToken(token: string): Promise<{ valid: boolea
 
 export async function validateInviteToken(token: string): Promise<{ valid: boolean }> {
   return get<{ valid: boolean }>(`/api/auth/validate-invite-token?token=${token}`)
+}
+
+export async function updateSubscription(userId: number, subscriptionType: string, daysToAdd?: number): Promise<UserResponse> {
+  return put<UserResponse>(`/api/admin/users/${userId}/subscription`, {
+    user_id: userId,
+    subscription_type: subscriptionType,
+    days_to_add: daysToAdd,
+  })
+}
+
+export async function updateSubscriptionWarning(userId: number, enabled: boolean, message?: string): Promise<UserResponse> {
+  return put<UserResponse>(`/api/admin/users/${userId}/subscription/warning`, {
+    user_id: userId,
+    enabled,
+    message,
+  })
 }

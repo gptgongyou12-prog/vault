@@ -24,7 +24,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (username, email, password_hash, is_admin, is_owner)
 VALUES (?, ?, ?, ?, ?)
-RETURNING id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at
+RETURNING id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at, subscription_type, subscription_expires_at, subscription_warning_enabled, subscription_warning_message, last_seen_at
 `
 
 type CreateUserParams struct {
@@ -54,6 +54,11 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.IsAdmin,
 		&i.IsOwner,
 		&i.SessionInvalidatedAt,
+		&i.SubscriptionType,
+		&i.SubscriptionExpiresAt,
+		&i.SubscriptionWarningEnabled,
+		&i.SubscriptionWarningMessage,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
@@ -69,7 +74,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id int64) error {
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at FROM users
+SELECT id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at, subscription_type, subscription_expires_at, subscription_warning_enabled, subscription_warning_message, last_seen_at FROM users
 WHERE email = ?
 `
 
@@ -86,12 +91,17 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.IsAdmin,
 		&i.IsOwner,
 		&i.SessionInvalidatedAt,
+		&i.SubscriptionType,
+		&i.SubscriptionExpiresAt,
+		&i.SubscriptionWarningEnabled,
+		&i.SubscriptionWarningMessage,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at FROM users
+SELECT id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at, subscription_type, subscription_expires_at, subscription_warning_enabled, subscription_warning_message, last_seen_at FROM users
 WHERE id = ?
 `
 
@@ -108,12 +118,17 @@ func (q *Queries) GetUserByID(ctx context.Context, id int64) (User, error) {
 		&i.IsAdmin,
 		&i.IsOwner,
 		&i.SessionInvalidatedAt,
+		&i.SubscriptionType,
+		&i.SubscriptionExpiresAt,
+		&i.SubscriptionWarningEnabled,
+		&i.SubscriptionWarningMessage,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at FROM users
+SELECT id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at, subscription_type, subscription_expires_at, subscription_warning_enabled, subscription_warning_message, last_seen_at FROM users
 WHERE username = ?
 `
 
@@ -130,6 +145,11 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.IsAdmin,
 		&i.IsOwner,
 		&i.SessionInvalidatedAt,
+		&i.SubscriptionType,
+		&i.SubscriptionExpiresAt,
+		&i.SubscriptionWarningEnabled,
+		&i.SubscriptionWarningMessage,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
@@ -150,7 +170,7 @@ const updateUser = `-- name: UpdateUser :one
 UPDATE users
 SET username = ?, email = ?, updated_at = CURRENT_TIMESTAMP
 WHERE id = ?
-RETURNING id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at
+RETURNING id, username, email, password_hash, created_at, updated_at, is_admin, is_owner, session_invalidated_at, subscription_type, subscription_expires_at, subscription_warning_enabled, subscription_warning_message, last_seen_at
 `
 
 type UpdateUserParams struct {
@@ -172,6 +192,11 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.IsAdmin,
 		&i.IsOwner,
 		&i.SessionInvalidatedAt,
+		&i.SubscriptionType,
+		&i.SubscriptionExpiresAt,
+		&i.SubscriptionWarningEnabled,
+		&i.SubscriptionWarningMessage,
+		&i.LastSeenAt,
 	)
 	return i, err
 }
@@ -184,5 +209,38 @@ WHERE id = ?
 
 func (q *Queries) UpdateUserSessionInvalidatedAt(ctx context.Context, id int64) error {
 	_, err := q.db.ExecContext(ctx, updateUserSessionInvalidatedAt, id)
+	return err
+}
+
+const updateUserSubscription = `UPDATE users SET subscription_type = ?, subscription_expires_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+
+type UpdateUserSubscriptionParams struct {
+	SubscriptionType      string       `json:"subscription_type"`
+	SubscriptionExpiresAt sql.NullTime `json:"subscription_expires_at"`
+	ID                    int64        `json:"id"`
+}
+
+func (q *Queries) UpdateUserSubscription(ctx context.Context, arg UpdateUserSubscriptionParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserSubscription, arg.SubscriptionType, arg.SubscriptionExpiresAt, arg.ID)
+	return err
+}
+
+const updateUserSubscriptionWarning = `UPDATE users SET subscription_warning_enabled = ?, subscription_warning_message = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+
+type UpdateUserSubscriptionWarningParams struct {
+	SubscriptionWarningEnabled bool   `json:"subscription_warning_enabled"`
+	SubscriptionWarningMessage string `json:"subscription_warning_message"`
+	ID                         int64  `json:"id"`
+}
+
+func (q *Queries) UpdateUserSubscriptionWarning(ctx context.Context, arg UpdateUserSubscriptionWarningParams) error {
+	_, err := q.db.ExecContext(ctx, updateUserSubscriptionWarning, arg.SubscriptionWarningEnabled, arg.SubscriptionWarningMessage, arg.ID)
+	return err
+}
+
+const updateUserLastSeen = `UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?`
+
+func (q *Queries) UpdateUserLastSeen(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, updateUserLastSeen, id)
 	return err
 }

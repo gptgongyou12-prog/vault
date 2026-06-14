@@ -20,6 +20,9 @@ import {
   Search,
   ChevronLeft,
   Smartphone,
+  AlertTriangle,
+  CalendarDays,
+  Clock3,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -44,6 +47,10 @@ export function UserManagementModal({
 }: UserManagementModalProps) {
   const queryClient = useQueryClient();
   const { user: currentUser, refreshUser } = useAuth();
+  const [subscriptionUserId, setSubscriptionUserId] = useState<number | null>(null);
+  const [subscriptionDays, setSubscriptionDays] = useState<string>("");
+  const [warningModalUserId, setWarningModalUserId] = useState<number | null>(null);
+  const [warningMessage, setWarningMessage] = useState<string>("");
   const [generatedInvite, setGeneratedInvite] = useState<{
     id: number;
     token: string;
@@ -77,6 +84,10 @@ export function UserManagementModal({
       setCopiedTitleTokenId(null);
       setDeleteConfirmingUser(null);
       setUserSearchQuery("");
+      setSubscriptionUserId(null);
+      setSubscriptionDays("");
+      setWarningModalUserId(null);
+      setWarningMessage("");
     }
   }, [isOpen]);
 
@@ -162,7 +173,30 @@ export function UserManagementModal({
     onError: () => toast.error("Failed to update lite mode"),
   });
 
-  const createResetLinkMutation = useMutation({
+  const updateSubscriptionMutation = useMutation({
+    mutationFn: ({ userId, subscriptionType, daysToAdd }: { userId: number; subscriptionType: string; daysToAdd?: number }) =>
+      adminApi.updateSubscription(userId, subscriptionType, daysToAdd),
+    onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ["admin", "users"] });
+      setSubscriptionUserId(null);
+      setSubscriptionDays("");
+      toast.success("구독 정보가 업데이트되었습니다");
+    },
+    onError: () => toast.error("구독 업데이트에 실패했습니다"),
+  });
+
+  const updateWarningMutation = useMutation({
+    mutationFn: ({ userId, enabled, message }: { userId: number; enabled: boolean; message?: string }) =>
+      adminApi.updateSubscriptionWarning(userId, enabled, message),
+    onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ["admin", "users"] });
+      setWarningModalUserId(null);
+      setWarningMessage("");
+    },
+    onError: () => toast.error("경고 설정 업데이트에 실패했습니다"),
+  });
+
+    const createResetLinkMutation = useMutation({
     mutationFn: (userId: number) => adminApi.createResetLink(userId),
     onSuccess: (response, userId) => {
       const origin =
@@ -448,6 +482,64 @@ export function UserManagementModal({
                               onToggleLiteMode={() =>
                                 liteModeM.mutate({ userId: user.id, liteMode: !user.lite_mode })
                               }
+                              subscriptionUserId={subscriptionUserId}
+                              subscriptionDays={subscriptionDays}
+                              onSubscriptionDaysChange={setSubscriptionDays}
+                              onSubscriptionOpen={() => {
+                                setSubscriptionUserId(user.id);
+                                setSubscriptionDays("");
+                              }}
+                              onSubscriptionClose={() => {
+                                setSubscriptionUserId(null);
+                                setSubscriptionDays("");
+                              }}
+                              onSubscriptionAddDays={() => {
+                                const days = parseInt(subscriptionDays);
+                                if (!isNaN(days) && days > 0) {
+                                  updateSubscriptionMutation.mutate({
+                                    userId: user.id,
+                                    subscriptionType: "regular",
+                                    daysToAdd: days,
+                                  });
+                                }
+                              }}
+                              onSubscriptionLifetime={() => {
+                                updateSubscriptionMutation.mutate({
+                                  userId: user.id,
+                                  subscriptionType: "lifetime",
+                                });
+                              }}
+                              onSubscriptionTrial={() => {
+                                updateSubscriptionMutation.mutate({
+                                  userId: user.id,
+                                  subscriptionType: "trial",
+                                  daysToAdd: 3,
+                                });
+                              }}
+                              onWarningClick={() => {
+                                if (user.subscription_warning_enabled) {
+                                  updateWarningMutation.mutate({ userId: user.id, enabled: false });
+                                  setSubscriptionUserId(user.id);
+                                  setSubscriptionDays("");
+                                } else {
+                                  setWarningModalUserId(user.id);
+                                  setWarningMessage(user.subscription_warning_message || "");
+                                }
+                              }}
+                              warningModalOpen={warningModalUserId === user.id}
+                              warningMessage={warningMessage}
+                              onWarningMessageChange={setWarningMessage}
+                              onWarningConfirm={() => {
+                                updateWarningMutation.mutate({
+                                  userId: user.id,
+                                  enabled: true,
+                                  message: warningMessage,
+                                });
+                              }}
+                              onWarningModalClose={() => {
+                                setWarningModalUserId(null);
+                                setWarningMessage("");
+                              }}
                               isDeleteMutating={deleteUserMutation.isPending}
                               isUpdateRoleMutating={
                                 updateRoleMutation.isPending
@@ -723,6 +815,20 @@ interface UserCardProps {
   onRenameChange: (value: string) => void;
   onRenameSave: () => void;
   onRenameCancel: () => void;
+  subscriptionUserId: number | null;
+  subscriptionDays: string;
+  onSubscriptionDaysChange: (v: string) => void;
+  onSubscriptionOpen: () => void;
+  onSubscriptionClose: () => void;
+  onSubscriptionAddDays: () => void;
+  onSubscriptionLifetime: () => void;
+  onSubscriptionTrial: () => void;
+  onWarningClick: () => void;
+  warningModalOpen: boolean;
+  warningMessage: string;
+  onWarningMessageChange: (v: string) => void;
+  onWarningConfirm: () => void;
+  onWarningModalClose: () => void;
   isDeleteMutating: boolean;
   isUpdateRoleMutating: boolean;
   isCreateResetMutating: boolean;
@@ -741,6 +847,20 @@ function UserCard({
   onRenameChange,
   onRenameSave,
   onRenameCancel,
+  subscriptionUserId,
+  subscriptionDays,
+  onSubscriptionDaysChange,
+  onSubscriptionOpen,
+  onSubscriptionClose,
+  onSubscriptionAddDays,
+  onSubscriptionLifetime,
+  onSubscriptionTrial,
+  onWarningClick,
+  warningModalOpen,
+  warningMessage,
+  onWarningMessageChange,
+  onWarningConfirm,
+  onWarningModalClose,
   isDeleteMutating,
   isUpdateRoleMutating,
   isCreateResetMutating,
@@ -752,6 +872,28 @@ function UserCard({
   const canPerformActions = !(user.is_owner && !currentUser?.is_owner);
   const isCurrentUser = currentUser?.id === user.id;
   const isRenaming = renamingUserId === user.id;
+  const isSubscriptionOpen = subscriptionUserId === user.id;
+
+  const now = new Date();
+  const expiresAt = user.subscription_expires_at ? new Date(user.subscription_expires_at) : null;
+  const isExpired = expiresAt ? expiresAt < now : false;
+  const isLifetime = user.subscription_type === "lifetime";
+  const isTrial = user.subscription_type === "trial";
+  const showExpiredBadge = isExpired && !isLifetime;
+  const showWarningDot = isExpired && !user.subscription_warning_enabled;
+  const showWarningIcon = user.subscription_warning_enabled;
+
+  const formatLastSeen = (lastSeen: string | null) => {
+    if (!lastSeen) return "기록 없음";
+    const d = new Date(lastSeen);
+    const diff = now.getTime() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return mins + "분 전";
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + "시간 전";
+    const days = Math.floor(hours / 24);
+    return days + "일 전";
+  };
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -844,11 +986,151 @@ function UserCard({
                 Owner
               </div>
             )}
+            {isTrial && (
+              <div
+                className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 rounded-md text-[10px] text-amber-400"
+                style={{ fontFamily: '"IBM Plex Mono", monospace', fontWeight: 300 }}
+              >
+                체험판
+              </div>
+            )}
+            {showExpiredBadge && (
+              <div
+                className="px-2 py-0.5 bg-red-500/10 border border-red-500/30 rounded-md text-[10px] text-red-400"
+                style={{ fontFamily: '"IBM Plex Mono", monospace', fontWeight: 300 }}
+              >
+                만료
+              </div>
+            )}
           </div>
         </div>
-        <div className="text-sm text-muted-foreground truncate">
-          {user.email}
-        </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="truncate">{user.email}</span>
+          {user.is_online ? (
+            <span className="inline-flex shrink-0 w-2 h-2 rounded-full bg-green-400" title="접속 중" />
+          ) : (
+            <span className="shrink-0 text-xs text-white/30 flex items-center gap-1">
+              <Clock3 className="size-3" />
+              {formatLastSeen(user.last_seen_at)}
+            </span>
+          )}
+ 
+          {expiresAt && (
+            <span className="shrink-0 text-xs text-white/30 flex items-center gap-1">
+              <CalendarDays className="size-3" />
+              {expiresAt.toLocaleDateString("ko-KR")}
+            </span>
+          )}       </div>
+        {/* Subscription panel */}
+        {isSubscriptionOpen && (
+          <div className="mt-2 rounded-xl bg-white/5 border border-white/10 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white/50 flex items-center gap-1">
+                <CalendarDays className="size-3" />
+                {expiresAt ? ("만료: " + expiresAt.toLocaleDateString("ko-KR")) : "만료일 없음"}
+              </span>
+              <button
+                type="button"
+                onClick={onSubscriptionClose}
+                className="text-white/30 hover:text-white/70 transition-colors"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="1"
+                value={subscriptionDays}
+                onChange={(e) => onSubscriptionDaysChange(e.target.value)}
+                placeholder="일수"
+                className="w-20 px-2 py-1 text-xs bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 outline-none focus:border-white/25"
+              />
+              <button
+                type="button"
+                onClick={onSubscriptionAddDays}
+                disabled={!subscriptionDays || isNaN(parseInt(subscriptionDays))}
+                className="px-3 py-1 text-xs rounded-lg bg-[#0099bb]/20 border border-[#0099bb]/30 text-[#0099bb] hover:bg-[#0099bb]/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                연장
+              </button>
+              <button
+                type="button"
+                onClick={onSubscriptionTrial}
+                className="px-3 py-1 text-xs rounded-lg bg-amber-500/15 border border-amber-500/25 text-amber-400 hover:bg-amber-500/25 transition-colors"
+              >
+                체험 3일
+              </button>
+              <button
+                type="button"
+                onClick={onSubscriptionLifetime}
+                className="px-3 py-1 text-xs rounded-lg bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/25 transition-colors"
+              >
+                영구
+              </button>
+            </div>
+          </div>
+        )}
+        {/* Warning enable modal inline */}
+        {warningModalOpen && (
+          <div className="mt-2 rounded-xl bg-red-500/5 border border-red-500/20 p-3 space-y-2">
+            <p className="text-xs text-red-400">접근 제한 메시지를 입력하세요</p>
+            <input
+              type="text"
+              value={warningMessage}
+              onChange={(e) => onWarningMessageChange(e.target.value)}
+              placeholder="계정이 만료되었습니다..."
+              className="w-full px-2 py-1.5 text-xs bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-white/30 outline-none focus:border-red-500/30"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onWarningConfirm}
+                className="px-3 py-1 text-xs rounded-lg bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-colors"
+              >
+                경고 활성화
+              </button>
+              <button
+                type="button"
+                onClick={onWarningModalClose}
+                className="px-3 py-1 text-xs rounded-lg bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 transition-colors"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Subscription / warning action buttons */}
+      <div className="flex items-center gap-1 shrink-0">
+        {(showWarningDot || showWarningIcon) && (
+          <button
+            type="button"
+            onClick={onWarningClick}
+            title={showWarningIcon ? "경고 활성화됨 (클릭하여 비활성화)" : "경고 활성화"}
+            className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
+          >
+            {showWarningIcon ? (
+              <AlertTriangle className="size-3.5 text-red-400" />
+            ) : (
+              <span className="inline-flex w-2 h-2 rounded-full bg-red-500" />
+            )}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={isSubscriptionOpen ? onSubscriptionClose : onSubscriptionOpen}
+          title="구독 관리"
+          className={"px-2 py-1 rounded-lg text-[10px] border transition-colors " + (
+            isSubscriptionOpen
+              ? "bg-[#0099bb]/20 border-[#0099bb]/30 text-[#0099bb]"
+              : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/70"
+          )}
+          style={{ fontFamily: '"IBM Plex Mono", monospace' }}
+        >
+          월정액
+        </button>
       </div>
 
       {/* Actions */}

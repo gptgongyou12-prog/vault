@@ -10,8 +10,15 @@ export interface User {
   email: string
   is_admin: boolean
   is_owner: boolean
-  created_at: string 
+  lite_mode: boolean
+  created_at: string
   updated_at: string
+  subscription_type: string
+  subscription_expires_at: string | null
+  subscription_warning_enabled: boolean
+  subscription_warning_message: string
+  last_seen_at: string | null
+  is_online: boolean
 }
 
 export interface UserPreferences {

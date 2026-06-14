@@ -15,6 +15,7 @@ import { getPreferences } from "../api/preferences";
 import { getTrack as fetchTrack } from "../api/tracks";
 import { getVersions } from "../api/versions";
 import { preloadCover } from "../hooks/useProjectCoverImage";
+import { recordPlay } from "../api/history";
 
 const API_BASE_URL = env.VITE_API_URL || "";
 
@@ -132,6 +133,9 @@ export function AudioPlayerProvider({
   const isInitialMountRef = useRef(true);
   const lastRestartTimeRef = useRef<number>(0);
   const prevIsShuffledRef = useRef<boolean>(false);
+  const currentTrackRef = useRef<Track | null>(null);
+  const playHistoryRef = useRef<Track[]>([]);
+  const skipHistoryPushRef = useRef<boolean>(false);
 
   useEffect(() => {
     try {
@@ -494,9 +498,20 @@ export function AudioPlayerProvider({
         preloadAudioRef.current = null;
       }
 
+      // iOS: preserve user gesture context before async operations
+      // Calling play() synchronously marks the audio element as trusted,
+      // allowing subsequent async play() calls from React effects to work on iOS
+      const _iosUnlockEl = audioPlayerRef.current?.audio?.current;
+      if (_iosUnlockEl) _iosUnlockEl.play().catch(() => {});
+
       let trackToPlay = track;
       trackToPlay = await ensureTrackWaveform(trackToPlay);
 
+      if (!skipHistoryPushRef.current && currentTrackRef.current && currentTrackRef.current.id !== trackToPlay.id) {
+        playHistoryRef.current = [...playHistoryRef.current.slice(-49), currentTrackRef.current];
+      }
+      skipHistoryPushRef.current = false;
+      currentTrackRef.current = trackToPlay;
       setCurrentTrack(trackToPlay);
 
       const quality = qualityPreference;
@@ -524,6 +539,10 @@ export function AudioPlayerProvider({
 
       setAudioUrl(streamUrl);
       setIsPlaying(autoPlay);
+
+      if (autoPlay) {
+        recordPlay(track.id).catch(() => {});
+      }
 
       setTimeout(() => preloadNextTrack(), 100);
     },
@@ -635,15 +654,20 @@ export function AudioPlayerProvider({
     }
 
     if (currentProjectTracks.length > 0) {
-      if (isShuffled && shuffledProjectTracks.length > 0) {
-        const currentIndex = shuffledProjectTracks.findIndex(
-          (t) => t.id === currentTrack.id,
-        );
-        if (currentIndex > 0) {
-          setQueue((prev) => [currentTrack, ...prev]);
-          play(shuffledProjectTracks[currentIndex - 1]);
+      if (isShuffled) {
+        if (playHistoryRef.current.length > 0) {
+          const prevTrack = playHistoryRef.current[playHistoryRef.current.length - 1];
+          playHistoryRef.current = playHistoryRef.current.slice(0, -1);
+          skipHistoryPushRef.current = true;
+          play(prevTrack);
           return;
         }
+        // no history, just restart
+        if (audioPlayerRef.current?.audio?.current) {
+          audioPlayerRef.current.audio.current.currentTime = 0;
+          lastRestartTimeRef.current = now;
+        }
+        return;
       } else {
         const currentIndex = currentProjectTracks.findIndex(
           (t) => t.id === currentTrack.id,
@@ -911,18 +935,7 @@ export function AudioPlayerProvider({
           seekTo(details.seekTime);
         }
       },
-      seekbackward: (details: MediaSessionActionDetails) => {
-        const audio = audioPlayerRef.current?.audio?.current;
-        if (audio) {
-          audio.currentTime = Math.max(0, audio.currentTime - (details.seekOffset ?? 10));
-        }
-      },
-      seekforward: (details: MediaSessionActionDetails) => {
-        const audio = audioPlayerRef.current?.audio?.current;
-        if (audio) {
-          audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + (details.seekOffset ?? 10));
-        }
-      },
+
     };
 
     Object.entries(handlers).forEach(([action, handler]) => {
@@ -932,6 +945,10 @@ export function AudioPlayerProvider({
         console.error(`[Media Session] ${action} not supported`);
       }
     });
+
+    // Explicitly disable seek buttons so iOS shows previoustrack/nexttrack instead
+    try { navigator.mediaSession.setActionHandler("seekbackward", null); } catch {}
+    try { navigator.mediaSession.setActionHandler("seekforward", null); } catch {}
 
     return () => {
       if ("mediaSession" in navigator) {

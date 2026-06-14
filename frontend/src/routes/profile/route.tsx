@@ -57,6 +57,12 @@ function ProfileLayout() {
         is_owner: user.is_owner,
         lite_mode: false,
         created_at: user.created_at,
+        subscription_type: user.subscription_type ?? 'regular',
+        subscription_expires_at: user.subscription_expires_at ?? null,
+        subscription_warning_enabled: user.subscription_warning_enabled ?? false,
+        subscription_warning_message: user.subscription_warning_message ?? '',
+        last_seen_at: user.last_seen_at ?? null,
+        is_online: false,
       }
     : null;
 

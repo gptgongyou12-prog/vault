@@ -53,8 +53,20 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#181818] p-4">
-      <div className="w-full max-w-[500px]">
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden" style={{ background: '#0a0e1a' }}>
+      {/* Background image */}
+      <div
+        className="absolute inset-0 z-0"
+        style={{
+          backgroundImage: 'url(/login-bg.jpg)',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center 30%',
+          backgroundRepeat: 'no-repeat',
+        }}
+      />
+      {/* Dark overlay */}
+      <div className="absolute inset-0 z-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.55) 100%)' }} />
+      <div className="w-full max-w-[500px] relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 5, filter: "blur(8px)" }}
           animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
@@ -70,7 +82,7 @@ function LoginPage() {
           }}
         >
           <div className="text-center mb-8">
-            <h1 className="text-[39px] font-light text-white">{`{ vault }`}</h1>
+            <h1 className="text-[39px] font-light text-white">{`{ arbiter }`}</h1>
           </div>
 
           {connectionError ? (

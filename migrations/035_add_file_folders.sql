@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS file_folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    public_id TEXT NOT NULL UNIQUE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    parent_id INTEGER REFERENCES file_folders(id) ON DELETE CASCADE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_file_folders_user ON file_folders(user_id);
+ALTER TABLE files ADD COLUMN folder_id INTEGER REFERENCES file_folders(id) ON DELETE SET NULL;

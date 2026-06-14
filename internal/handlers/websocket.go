@@ -390,3 +390,23 @@ func (c *CollaborationClient) writePump() {
 func generateSessionID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
+
+
+// GetOnlineUserIDs returns a list of currently connected user IDs.
+func (h *WSHub) GetOnlineUserIDs() []int64 {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	ids := make([]int64, 0, len(h.connections))
+	for id := range h.connections {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// IsOnline returns true if the user has at least one active WebSocket connection.
+func (h *WSHub) IsOnline(userID int64) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	conns, ok := h.connections[userID]
+	return ok && len(conns) > 0
+}

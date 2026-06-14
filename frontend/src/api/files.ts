@@ -6,17 +6,24 @@ export interface FileItem {
   name: string
   size: number
   mime_type: string
+  folder_id: number | null
   created_at: string
 }
 
-export async function listFiles(): Promise<FileItem[]> {
-  return get<FileItem[]>('/api/files')
+export async function listFiles(folderId?: string): Promise<FileItem[]> {
+  const params = folderId != null ? '?folder_id=' + folderId : '?folder_id=root'
+  return get<FileItem[]>('/api/files' + params)
 }
 
-export function uploadFile(file: File, onProgress?: (pct: number) => void): Promise<FileItem> {
+export function uploadFile(
+  file: File,
+  onProgress?: (pct: number) => void,
+  folderId?: number | null
+): Promise<FileItem> {
   return new Promise((resolve, reject) => {
     const form = new FormData()
     form.append('file', file)
+    if (folderId != null) form.append('folder_id', String(folderId))
     const csrf = document.cookie.match(/csrf_token=([^;]*)/)?.[1] || ''
     const xhr = new XMLHttpRequest()
     xhr.open('POST', '/api/files/upload')

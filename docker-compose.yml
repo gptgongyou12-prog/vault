@@ -8,15 +8,21 @@ services:
     environment:
       - PORT=8080
       - DATA_DIR=/app/data
+      - FILES_DIR=/app/storage/files
       - JWT_SECRET=${JWT_SECRET}
       - SIGNED_URL_SECRET=${SIGNED_URL_SECRET}
       - TOKEN_PEPPER=${TOKEN_PEPPER}
       - ACCESS_TOKEN_TTL=${ACCESS_TOKEN_TTL:-15m}
       - REFRESH_TOKEN_TTL=${REFRESH_TOKEN_TTL:-720h}
-      - SIGNED_URL_TTL=${SIGNED_URL_TTL:-5m}
+      - SIGNED_URL_TTL=${SIGNED_URL_TTL:-4h}
       - LOG_LEVEL=${LOG_LEVEL:-warn}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY}
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY}
     volumes:
       - /mnt/vault-usb/vault-data:/app/data
+      - /mnt/vault-storage:/app/storage
+      - /home/lee/scripts:/home/lee/scripts:ro
+      - /home/lee/logs:/home/lee/logs
     healthcheck:
       test:
         [

@@ -321,3 +321,79 @@ func Logging(next http.Handler) http.Handler {
 		slog.LogAttrs(r.Context(), level, msg, attrs...)
 	})
 }
+
+
+// LastSeenQuerier is the interface for updating last_seen_at
+type LastSeenQuerier interface {
+	UpdateUserLastSeen(ctx context.Context, id int64) error
+}
+
+// AuthMiddlewareWithLastSeen is like AuthMiddleware but also updates last_seen_at asynchronously.
+func AuthMiddlewareWithLastSeen(jwtSecret string, lsq LastSeenQuerier, sessionValidator ...SessionValidator) func(http.Handler) http.Handler {
+	var validator SessionValidator
+	if len(sessionValidator) > 0 {
+		validator = sessionValidator[0]
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			token := ""
+			if cookie, err := r.Cookie(auth.AccessTokenCookieName); err == nil {
+				token = cookie.Value
+			}
+			if token == "" {
+				authHeader := r.Header.Get("Authorization")
+				if authHeader != "" {
+					parts := strings.Split(authHeader, " ")
+					if len(parts) == 2 && parts[0] == "Bearer" {
+						token = parts[1]
+					}
+				}
+			}
+
+			if token == "" {
+				slog.WarnContext(r.Context(), "Auth failed: missing authentication token",
+					"path", r.URL.Path,
+					"method", r.Method,
+				)
+				http.Error(w, "missing authentication token", http.StatusUnauthorized)
+				return
+			}
+
+			claims, err := auth.ValidateToken(token, jwtSecret)
+			if err != nil {
+				slog.WarnContext(r.Context(), "Auth failed: invalid or expired token",
+					"path", r.URL.Path,
+					"method", r.Method,
+					"error", err.Error(),
+				)
+				http.Error(w, "invalid token", http.StatusUnauthorized)
+				return
+			}
+
+			if validator != nil && claims.IssuedAt != nil {
+				if !validator(claims.UserID, claims.IssuedAt.Time) {
+					slog.WarnContext(r.Context(), "Auth failed: session invalidated",
+						"path", r.URL.Path,
+						"method", r.Method,
+					)
+					http.Error(w, "session expired", http.StatusUnauthorized)
+					return
+				}
+			}
+
+			// Update last seen asynchronously
+			if lsq != nil {
+				userID := int64(claims.UserID)
+				go func() {
+					_ = lsq.UpdateUserLastSeen(context.Background(), userID)
+				}()
+			}
+
+			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
+			ctx = context.WithValue(ctx, UsernameKey, claims.Username)
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}

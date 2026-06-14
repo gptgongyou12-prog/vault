@@ -225,7 +225,7 @@ function ResetPasswordPage() {
           }}
         >
           <div className="text-center mb-8">
-            <h1 className="text-[39px] font-light text-white">{`{ vault }`}</h1>
+            <h1 className="text-[39px] font-light text-white">{`{ arbiter }`}</h1>
             <p
               className="text-[#7c7c7c] text-sm font-light mt-3"
               style={{ fontFamily: '"IBM Plex Mono", monospace' }}

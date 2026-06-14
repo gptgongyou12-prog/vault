@@ -32,6 +32,10 @@ var Version = "dev"
 type Config struct {
 	Port               string
 	DataDir            string
+	FilesDir           string
+	VideosDir          string
+	VAPIDPublicKey     string
+	VAPIDPrivateKey    string
 	AuthConfig         auth.Config
 	CORSAllowedOrigins []string
 }
@@ -80,6 +84,10 @@ func loadConfig() Config {
 	return Config{
 		Port:    port,
 		DataDir: dataDir,
+		VAPIDPublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
+		VAPIDPrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
+		FilesDir: func() string { if v := os.Getenv("FILES_DIR"); v != "" { return v }; return filepath.Join(dataDir, "files") }(),
+		VideosDir: func() string { if v := os.Getenv("VIDEOS_DIR"); v != "" { return v }; return filepath.Join(dataDir, "videos") }(),
 		AuthConfig: auth.Config{
 			JWTSecret:           jwtSecret,
 			JWTExpiration:       accessTTL,
@@ -231,6 +239,7 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(authService, config.AuthConfig)
 	adminHandler := handlers.NewAdminHandler(database, config.AuthConfig, config.DataDir)
+	adminHandler.SetWSHub(wsHub)
 	themeDir := filepath.Join(config.DataDir, "theme")
 	themeHandler := handlers.NewThemeHandler(database, themeDir)
 	prefsHandler := handlers.NewPreferencesHandler(database)
@@ -299,7 +308,7 @@ func main() {
 		return issuedAt.After(userInvalidated.Time)
 	}
 
-	authMW := middleware.AuthMiddleware(config.AuthConfig.JWTSecret, sessionValidator)
+	authMW := middleware.AuthMiddlewareWithLastSeen(config.AuthConfig.JWTSecret, database.Queries, sessionValidator)
 
 	mux.Handle("POST /api/admin/theme", authMW(httputil.Wrap(themeHandler.UploadTheme)))
 	mux.Handle("DELETE /api/admin/theme", authMW(httputil.Wrap(themeHandler.DeleteTheme)))
@@ -323,6 +332,8 @@ func main() {
 	mux.Handle("PUT /api/admin/users/{id}/rename", authMW(httputil.Wrap(adminHandler.RenameUser)))
 	mux.Handle("DELETE /api/admin/users/{id}", authMW(httputil.Wrap(adminHandler.DeleteUser)))
 	mux.Handle("POST /api/admin/users/{id}/reset-link", authMW(httputil.Wrap(adminHandler.CreateResetLink)))
+	mux.Handle("PUT /api/admin/users/{id}/subscription", authMW(httputil.Wrap(adminHandler.UpdateSubscription)))
+	mux.Handle("PUT /api/admin/users/{id}/subscription/warning", authMW(httputil.Wrap(adminHandler.UpdateSubscriptionWarning)))
 
 	mux.Handle("GET /api/admin/instance/export/size", authMW(httputil.Wrap(instanceHandler.GetExportSize)))
 	mux.Handle("GET /api/admin/instance/export", authMW(httputil.Wrap(instanceHandler.ExportInstance)))
@@ -438,11 +449,54 @@ func main() {
 	mux.Handle("PUT /api/projects/{projectId}/notes", authMW(httputil.Wrap(notesHandler.UpsertProjectNote)))
 	mux.Handle("DELETE /api/notes/{noteId}", authMW(httputil.Wrap(notesHandler.DeleteNote)))
 
-	filesHandler := handlers.NewFilesHandler(database, config.DataDir)
+	filesHandler := handlers.NewFilesHandler(database, config.FilesDir)
+	if err := os.MkdirAll(config.VideosDir, 0755); err != nil {
+		slog.Error("failed to create videos dir", "error", err)
+	}
+	videosHandler := handlers.NewVideosHandler(database, config.VideosDir)
+	kboHandler := handlers.NewKBOHandler()
+	reportHandler := handlers.NewReportHandler(database, config.VAPIDPublicKey, config.VAPIDPrivateKey)
+	historyHandler := handlers.NewHistoryHandler(database)
+	playlistsHandler := handlers.NewPlaylistsHandler(database)
 	mux.Handle("GET /api/files", authMW(httputil.Wrap(filesHandler.ListFiles)))
 	mux.Handle("POST /api/files/upload", authMW(httputil.Wrap(filesHandler.UploadFile)))
 	mux.Handle("GET /api/files/{id}/download", authMW(httputil.Wrap(filesHandler.DownloadFile)))
 	mux.Handle("DELETE /api/files/{id}", authMW(httputil.Wrap(filesHandler.DeleteFile)))
+	mux.Handle("PUT /api/files/{id}/move", authMW(httputil.Wrap(filesHandler.MoveFile)))
+	mux.Handle("GET /api/file-folders", authMW(httputil.Wrap(filesHandler.ListFolders)))
+	mux.Handle("POST /api/file-folders", authMW(httputil.Wrap(filesHandler.CreateFolder)))
+	mux.Handle("PUT /api/file-folders/{id}", authMW(httputil.Wrap(filesHandler.RenameFolder)))
+
+	// KBO routes
+	mux.Handle("GET /api/kbo/games", authMW(httputil.Wrap(kboHandler.GetGames)))
+	mux.Handle("GET /api/kbo/game", authMW(httputil.Wrap(kboHandler.GetBoxscore)))
+	mux.Handle("GET /api/kbo/standings", authMW(httputil.Wrap(kboHandler.GetStandings)))
+
+	// Report routes
+	mux.Handle("GET /api/report/daily", authMW(httputil.Wrap(reportHandler.GetDailyReport)))
+	mux.Handle("GET /api/report/settings", authMW(httputil.Wrap(reportHandler.GetSettings)))
+	mux.Handle("PUT /api/report/settings", authMW(httputil.Wrap(reportHandler.UpdateSettings)))
+	mux.Handle("GET /api/report/school-search", authMW(httputil.Wrap(reportHandler.SearchSchool)))
+	mux.Handle("POST /api/report/push-subscribe", authMW(httputil.Wrap(reportHandler.SavePushSubscription)))
+	mux.Handle("DELETE /api/file-folders/{id}", authMW(httputil.Wrap(filesHandler.DeleteFolder)))
+
+	mux.Handle("POST /api/videos/download", authMW(httputil.Wrap(videosHandler.DownloadVideo)))
+	mux.Handle("GET /api/videos", authMW(httputil.Wrap(videosHandler.ListVideos)))
+	mux.Handle("GET /api/videos/{id}", authMW(httputil.Wrap(videosHandler.GetVideoStatus)))
+	mux.Handle("GET /api/videos/{id}/stream", authMW(httputil.Wrap(videosHandler.StreamVideo)))
+	mux.Handle("GET /api/videos/{id}/thumbnail", authMW(httputil.Wrap(videosHandler.ServeThumbnail)))
+	mux.Handle("DELETE /api/videos/{id}", authMW(httputil.Wrap(videosHandler.DeleteVideo)))
+
+	mux.Handle("POST /api/history", authMW(httputil.Wrap(historyHandler.RecordPlay)))
+	mux.Handle("GET /api/history", authMW(httputil.Wrap(historyHandler.GetHistory)))
+
+	mux.Handle("GET /api/playlists", authMW(httputil.Wrap(playlistsHandler.ListPlaylists)))
+	mux.Handle("POST /api/playlists", authMW(httputil.Wrap(playlistsHandler.CreatePlaylist)))
+	mux.Handle("PUT /api/playlists/{id}", authMW(httputil.Wrap(playlistsHandler.UpdatePlaylist)))
+	mux.Handle("DELETE /api/playlists/{id}", authMW(httputil.Wrap(playlistsHandler.DeletePlaylist)))
+	mux.Handle("GET /api/playlists/{id}/tracks", authMW(httputil.Wrap(playlistsHandler.GetPlaylistTracks)))
+	mux.Handle("POST /api/playlists/{id}/tracks", authMW(httputil.Wrap(playlistsHandler.AddTrack)))
+	mux.Handle("DELETE /api/playlists/{id}/tracks/{item_id}", authMW(httputil.Wrap(playlistsHandler.RemoveTrack)))
 
 	mux.Handle("GET /api/ws", authMW(http.HandlerFunc(wsHandler.HandleConnection)))
 	mux.Handle("GET /api/ws/collaborate", authMW(http.HandlerFunc(collaborationHandler.HandleCollaboration)))

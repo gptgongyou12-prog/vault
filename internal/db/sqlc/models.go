@@ -231,15 +231,20 @@ type TrackVersion struct {
 }
 
 type User struct {
-	ID                   int64        `json:"id"`
-	Username             string       `json:"username"`
-	Email                string       `json:"email"`
-	PasswordHash         string       `json:"password_hash"`
-	CreatedAt            sql.NullTime `json:"created_at"`
-	UpdatedAt            sql.NullTime `json:"updated_at"`
-	IsAdmin              bool         `json:"is_admin"`
-	IsOwner              bool         `json:"is_owner"`
-	SessionInvalidatedAt sql.NullTime `json:"session_invalidated_at"`
+	ID                         int64        `json:"id"`
+	Username                   string       `json:"username"`
+	Email                      string       `json:"email"`
+	PasswordHash               string       `json:"password_hash"`
+	CreatedAt                  sql.NullTime `json:"created_at"`
+	UpdatedAt                  sql.NullTime `json:"updated_at"`
+	IsAdmin                    bool         `json:"is_admin"`
+	IsOwner                    bool         `json:"is_owner"`
+	SessionInvalidatedAt       sql.NullTime `json:"session_invalidated_at"`
+	SubscriptionType           string       `json:"subscription_type"`
+	SubscriptionExpiresAt      sql.NullTime `json:"subscription_expires_at"`
+	SubscriptionWarningEnabled int64        `json:"subscription_warning_enabled"`
+	SubscriptionWarningMessage string       `json:"subscription_warning_message"`
+	LastSeenAt                 sql.NullTime `json:"last_seen_at"`
 }
 
 type UserPreference struct {

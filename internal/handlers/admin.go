@@ -24,6 +24,7 @@ type AdminHandler struct {
 	db         *db.DB
 	authConfig auth.Config
 	dataDir    string
+	wsHub      *WSHub
 }
 
 func NewAdminHandler(database *db.DB, authConfig auth.Config, dataDir string) *AdminHandler {
@@ -32,6 +33,10 @@ func NewAdminHandler(database *db.DB, authConfig auth.Config, dataDir string) *A
 		authConfig: authConfig,
 		dataDir:    dataDir,
 	}
+}
+
+func (h *AdminHandler) SetWSHub(hub *WSHub) {
+	h.wsHub = hub
 }
 
 func (h *AdminHandler) ListAllUsersPublic(w http.ResponseWriter, r *http.Request) error {
@@ -95,15 +100,13 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) error {
 		if prefs, pErr := h.db.GetUserPreferences(ctx, u.ID); pErr == nil {
 			liteMode = prefs.LiteMode != 0
 		}
-		userResponses = append(userResponses, UserResponse{
-			ID:        u.ID,
-			Username:  u.Username,
-			Email:     u.Email,
-			IsAdmin:   u.IsAdmin,
-			IsOwner:   u.IsOwner,
-			LiteMode:  liteMode,
-			CreatedAt: u.CreatedAt.Time,
-		})
+		isOnline := false
+		if h.wsHub != nil {
+			isOnline = h.wsHub.IsOnline(u.ID)
+		}
+		resp := buildUserResponse(u, liteMode)
+		resp.IsOnline = isOnline
+		userResponses = append(userResponses, resp)
 	}
 
 	return httputil.OKResult(w, userResponses)
@@ -376,13 +379,46 @@ func (h *AdminHandler) CreateResetLink(w http.ResponseWriter, r *http.Request) e
 }
 
 type UserResponse struct {
-	ID        int64     `json:"id"`
-	Username  string    `json:"username"`
-	Email     string    `json:"email"`
-	IsAdmin   bool      `json:"is_admin"`
-	IsOwner   bool      `json:"is_owner"`
-	LiteMode  bool      `json:"lite_mode"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                         int64      `json:"id"`
+	Username                   string     `json:"username"`
+	Email                      string     `json:"email"`
+	IsAdmin                    bool       `json:"is_admin"`
+	IsOwner                    bool       `json:"is_owner"`
+	LiteMode                   bool       `json:"lite_mode"`
+	CreatedAt                  time.Time  `json:"created_at"`
+	SubscriptionType           string     `json:"subscription_type"`
+	SubscriptionExpiresAt      *time.Time `json:"subscription_expires_at"`
+	SubscriptionWarningEnabled bool       `json:"subscription_warning_enabled"`
+	SubscriptionWarningMessage string     `json:"subscription_warning_message"`
+	LastSeenAt                 *time.Time `json:"last_seen_at"`
+	IsOnline                   bool       `json:"is_online"`
+}
+
+func buildUserResponse(u sqlc.User, liteMode bool) UserResponse {
+	var expiresAt *time.Time
+	if u.SubscriptionExpiresAt.Valid {
+		t := u.SubscriptionExpiresAt.Time
+		expiresAt = &t
+	}
+	var lastSeen *time.Time
+	if u.LastSeenAt.Valid {
+		t := u.LastSeenAt.Time
+		lastSeen = &t
+	}
+	return UserResponse{
+		ID:                         u.ID,
+		Username:                   u.Username,
+		Email:                      u.Email,
+		IsAdmin:                    u.IsAdmin,
+		IsOwner:                    u.IsOwner,
+		LiteMode:                   liteMode,
+		CreatedAt:                  u.CreatedAt.Time,
+		SubscriptionType:           u.SubscriptionType,
+		SubscriptionExpiresAt:      expiresAt,
+		SubscriptionWarningEnabled: u.SubscriptionWarningEnabled != 0,
+		SubscriptionWarningMessage: u.SubscriptionWarningMessage,
+		LastSeenAt:                 lastSeen,
+	}
 }
 
 type CreateInviteRequest struct {
@@ -513,29 +549,29 @@ func (h *AdminHandler) GetSystemInfo(w http.ResponseWriter, r *http.Request) err
 		return apperr.NewForbidden("admin access required")
 	}
 
-	// CPU 온도
+	// CPU temp
 	tempMillis := int64(0)
 	if data, err := os.ReadFile("/sys/class/thermal/thermal_zone0/temp"); err == nil {
 		fmt.Sscanf(strings.TrimSpace(string(data)), "%d", &tempMillis)
 	}
 	tempC := float64(tempMillis) / 1000.0
 
-	// 메인 디스크 사용량
+	// disk usage
 	mainDisk := getDiskUsage("/")
 	usbDisk := getDiskUsage("/mnt/vault-usb")
 
 	return httputil.OKResult(w, map[string]interface{}{
-		"cpu_temp_c":     tempC,
-		"main_disk":      mainDisk,
-		"usb_disk":       usbDisk,
+		"cpu_temp_c": tempC,
+		"main_disk":  mainDisk,
+		"usb_disk":   usbDisk,
 	})
 }
 
 type DiskInfo struct {
-	Total     uint64  `json:"total"`
-	Used      uint64  `json:"used"`
-	Avail     uint64  `json:"avail"`
-	UsedPct   float64 `json:"used_pct"`
+	Total   uint64  `json:"total"`
+	Used    uint64  `json:"used"`
+	Avail   uint64  `json:"avail"`
+	UsedPct float64 `json:"used_pct"`
 }
 
 func getDiskUsage(path string) *DiskInfo {
@@ -545,8 +581,8 @@ func getDiskUsage(path string) *DiskInfo {
 	}
 	total := stat.Blocks * uint64(stat.Bsize)
 	avail := stat.Bavail * uint64(stat.Bsize)
-	used  := total - avail
-	pct   := 0.0
+	used := total - avail
+	pct := 0.0
 	if total > 0 {
 		pct = float64(used) / float64(total) * 100
 	}
@@ -570,4 +606,96 @@ func (h *AdminHandler) RunOptimize(w http.ResponseWriter, r *http.Request) error
 	}
 	go func() { _ = cmd.Wait() }()
 	return httputil.OKResult(w, map[string]string{"status": "started"})
+}
+
+type UpdateSubscriptionRequest struct {
+	UserID           int64  `json:"user_id"`
+	SubscriptionType string `json:"subscription_type"` // "regular", "trial", "lifetime"
+	DaysToAdd        *int   `json:"days_to_add,omitempty"`
+}
+
+func (h *AdminHandler) UpdateSubscription(w http.ResponseWriter, r *http.Request) error {
+	adminID, err := httputil.RequireUserID(r)
+	if err != nil {
+		return apperr.NewUnauthorized("unauthorized")
+	}
+	ctx := r.Context()
+	admin, err := h.db.Queries.GetUserByID(ctx, int64(adminID))
+	if err != nil || !admin.IsAdmin {
+		return apperr.NewForbidden("admin access required")
+	}
+
+	req, err := httputil.DecodeJSON[UpdateSubscriptionRequest](r)
+	if err != nil {
+		return apperr.NewBadRequest("invalid request body")
+	}
+
+	var expiresAt sql.NullTime
+	switch req.SubscriptionType {
+	case "lifetime":
+		expiresAt = sql.NullTime{Valid: false}
+	case "trial":
+		expiresAt = sql.NullTime{Time: time.Now().Add(3 * 24 * time.Hour), Valid: true}
+	default:
+		if req.DaysToAdd != nil && *req.DaysToAdd > 0 {
+			target, _ := h.db.Queries.GetUserByID(ctx, req.UserID)
+			base := time.Now()
+			if target.SubscriptionExpiresAt.Valid && target.SubscriptionExpiresAt.Time.After(time.Now()) {
+				base = target.SubscriptionExpiresAt.Time
+			}
+			expiresAt = sql.NullTime{Time: base.Add(time.Duration(*req.DaysToAdd) * 24 * time.Hour), Valid: true}
+		}
+	}
+
+	err = h.db.Queries.UpdateUserSubscription(ctx, sqlc.UpdateUserSubscriptionParams{
+		SubscriptionType:      req.SubscriptionType,
+		SubscriptionExpiresAt: expiresAt,
+		ID:                    req.UserID,
+	})
+	if err != nil {
+		return apperr.NewInternal("failed to update subscription", err)
+	}
+
+	user, _ := h.db.Queries.GetUserByID(ctx, req.UserID)
+	return httputil.OKResult(w, buildUserResponse(user, false))
+}
+
+type UpdateWarningRequest struct {
+	UserID  int64  `json:"user_id"`
+	Enabled bool   `json:"enabled"`
+	Message string `json:"message,omitempty"`
+}
+
+func (h *AdminHandler) UpdateSubscriptionWarning(w http.ResponseWriter, r *http.Request) error {
+	adminID, err := httputil.RequireUserID(r)
+	if err != nil {
+		return apperr.NewUnauthorized("unauthorized")
+	}
+	ctx := r.Context()
+	admin, err := h.db.Queries.GetUserByID(ctx, int64(adminID))
+	if err != nil || !admin.IsAdmin {
+		return apperr.NewForbidden("admin access required")
+	}
+
+	req, err := httputil.DecodeJSON[UpdateWarningRequest](r)
+	if err != nil {
+		return apperr.NewBadRequest("invalid request body")
+	}
+
+	msg := req.Message
+	if msg == "" {
+		msg = "서비스 이용 기간이 만료되었습니다. 관리자에게 문의하여 결제해 주세요."
+	}
+
+	err = h.db.Queries.UpdateUserSubscriptionWarning(ctx, sqlc.UpdateUserSubscriptionWarningParams{
+		SubscriptionWarningEnabled: req.Enabled,
+		SubscriptionWarningMessage: msg,
+		ID:                         req.UserID,
+	})
+	if err != nil {
+		return apperr.NewInternal("failed to update warning", err)
+	}
+
+	user, _ := h.db.Queries.GetUserByID(ctx, req.UserID)
+	return httputil.OKResult(w, buildUserResponse(user, false))
 }
