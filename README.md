@@ -1,12 +1,7 @@
 <div align="center">
 
-# { vault }
-
-**Self-hosted streaming for your work-in-progress music.**
-
-Store, share, and version your audio projects.
-
-[![Docker](https://img.shields.io/badge/ghcr.io-blue?logo=docker&logoColor=white)](https://ghcr.io/bungleware/vault)
+# { ARBITER }
+ghcr.io-blue?logo=docker&logoColor=white)](https://ghcr.io/bungleware/vault)
 [![License](https://img.shields.io/github/license/bungleware/vault)](LICENSE)
 
 <img width="1208" height="852" alt="covers" src="docs/covers.webp" />
@@ -25,20 +20,7 @@ Store, share, and version your audio projects.
 
 <br/>
 
-## About
 
-This app is inspired by [untitled]. I wanted to create an open source alternative. I couldn't find anything similar, so I started this as a side project in Nov 2025.
-
-## Features
-
-- Store your audio projects
-- Add other accounts in your instance via an invite link
-- Share projects and tracks across users in the same instance
-- Share your projects and tracks publicly with a link, with defined permissions (downloading, password protection)
-- Organize your library in folders (can also nest them)
-- Export and import your instance (zip backup)
-
-## Setup
 
 Requires Docker.
 
